@@ -1,16 +1,19 @@
 import javax.swing.*;
 import java.awt.*;
 import java.util.concurrent.Semaphore;
+import java.util.Random;
 
 public class FabricaJuguetes extends JFrame {
 
     private static final int CAPACIDAD_ALMACEN = 10;
     private int piezasDisponibles = 0;
-
+    private boolean pausa = false;
+    private JButton pausarButton;
     private final Semaphore mutex = new Semaphore(1);
     private final Semaphore piezasSuficientes = new Semaphore(0);
     private final Semaphore espacioDisponible = new Semaphore(CAPACIDAD_ALMACEN);
-
+    private final Semaphore juguetesDisponibles = new Semaphore(0);
+    private final Random random = new Random();
     private final JLabel[] piezasLabels = new JLabel[CAPACIDAD_ALMACEN];
     private final JTextArea logArea = new JTextArea(10, 30);
 
@@ -38,18 +41,53 @@ public class FabricaJuguetes extends JFrame {
         JButton iniciarButton = new JButton("Iniciar Simulación");
         iniciarButton.addActionListener(e -> iniciarSimulacion());
         add(iniciarButton, BorderLayout.SOUTH);
+
+        // Botón para pausar la simulación
+        pausarButton = new JButton("Pausar");
+        pausarButton.addActionListener(e -> pausarSimulacion());
+        pausarButton.setEnabled(false); // Desactivar el botón de pausa al principio
+        add(pausarButton, BorderLayout.EAST);
+    }
+    class Cliente implements Runnable {
+        @Override
+        public void run() {
+            try {
+                while (true) {
+                    Thread.sleep(random.nextInt(5000) + 1000); // Simula la llegada de un cliente de manera aleatoria
+                    if (juguetesDisponibles.tryAcquire()) {
+                        logArea.append("Cliente compró un juguete.\n");
+                    } else {
+                        logArea.append("Cliente no pudo comprar un juguete. No hay juguetes disponibles.\n");
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     private void iniciarSimulacion() {
         // Iniciar el hilo del proveedor
         new Thread(new Proveedor()).start();
+        new Thread(new Cliente()).start(); // Iniciar el hilo del cliente
 
         // Iniciar los hilos de los trabajadores
         for (int i = 1; i <= 5; i++) {
             new Thread(new Trabajador(), "Trabajador-" + i).start();
         }
+        // Activar el botón de pausa
+        pausarButton.setEnabled(true);
     }
-
+    private void pausarSimulacion() {
+        pausa = !pausa;
+        if (pausa) {
+            pausarButton.setText("Reanudar");
+            logArea.append("Simulación pausada.\n");
+        } else {
+            pausarButton.setText("Pausar");
+            logArea.append("Simulación reanudada.\n");
+        }
+    }
     class Trabajador implements Runnable {
         @Override
         public void run() {
@@ -75,6 +113,9 @@ public class FabricaJuguetes extends JFrame {
         public void run() {
             try {
                 while (true) {
+                    while (pausa) {
+                        Thread.sleep(100); // Espera hasta que se reanude la simulación
+                    }
                     espacioDisponible.acquire(); // Espera hasta que haya espacio en el almacén
                     mutex.acquire();
                     piezasDisponibles++; // Añade una pieza al almacén
@@ -109,6 +150,6 @@ public class FabricaJuguetes extends JFrame {
         SwingUtilities.invokeLater(() -> {
             FabricaJuguetes frame = new FabricaJuguetes();
             frame.setVisible(true);
-        });
-    }
+   });
+}
 }
